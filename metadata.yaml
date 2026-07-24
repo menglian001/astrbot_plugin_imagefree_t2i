@@ -1,0 +1,18 @@
+name: astrbot_plugin_imagefree_t2i
+display_name: ImageFree 文生图
+short_desc: 基于 Pollinations 的免费文本生成图片插件（无需 API Key）
+desc: >
+  调用 Pollinations 的免费文生图接口，根据文字描述生成图片。
+  支持指令手动生图，也提供函数工具供 LLM 自动调用。
+  无需 API Key，开箱即用。
+  【免责声明】本插件为非官方、非商业的个人学习作品，仅供个人学习与技术研究使用，
+  严禁用于任何商业或违法违规用途，严禁生成或传播违法违规及侵权内容；与 Pollinations、
+  AstrBot 及任何第三方均无隶属或授权关系，所调用的 Pollinations 为第三方公共服务，
+  其可用性、安全性与内容合规性均由该第三方负责，与作者无关；本插件按"现状"提供不作
+  任何担保，使用本插件产生的一切内容及由此引发的任何后果、损失与法律责任均由使用者
+  自行承担，与作者完全无关。安装或使用即视为已阅读并同意本声明，不同意请勿使用。
+version: 1.0.0
+author: menglian001
+repo: https://github.com/menglian001/astrbot_plugin_imagefree_t2i
+logo: logo.gif
+astrbot_version: ">=4.16,<5"
