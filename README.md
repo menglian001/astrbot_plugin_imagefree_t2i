@@ -199,6 +199,11 @@ Pollinations 免费服务对高频/并发请求会返回 `HTTP 429 Too Many Requ
 
 清理只作用于本插件自己的缓存目录、只删图片文件，且任何异常都仅记日志、不影响出图。
 
+## 联系作者
+
+- 邮箱：`astrbot@napcat.cc.cd`
+- GitHub：[menglian001](https://github.com/menglian001)
+
 ## 许可
 
 MIT
