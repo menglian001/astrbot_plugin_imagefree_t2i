@@ -4,79 +4,15 @@
   <img src="logo.gif" alt="ImageFree 文生图" width="600">
 </p>
 
-基于 [Pollinations](https://pollinations.ai) 免费文生图接口的 AstrBot 插件，**无需 API Key、无需注册、无人机验证**。输入文字描述即可生成图片，支持指令手动生图，也提供函数工具供 LLM 自动调用。
+基于 [Pollinations](https://pollinations.ai) 免费文生图接口的 AstrBot 插件，**无需 API Key、无需注册、无人机验证**。输入一句文字描述即可生成图片，支持指令手动生图，也提供函数工具供 LLM 自动调用。
 
 > 说明：本插件最初计划对接 imagefree.net 的内部接口，但该站点已强制 Cloudflare Turnstile 人机验证，逆向直连方案不再可用。因此后端改为合法免费的 Pollinations 接口，出图能力开箱即用。
 
-## 功能
+> 如果这个插件对你有帮助，欢迎点一个 ⭐ Star 支持一下，谢谢！
 
-- `/imagefree_draw <提示词>`（别名 `/生图`、`/画图`）：根据提示词生成图片并发送。
-- `/imagefree_status`：查看当前接口、模型、宽高比、重试等配置。
-- LLM 函数工具 `imagefree_generate_image`：开启后 LLM 可自动调用生图能力。
+---
 
-## 安装
-
-1. 将本目录放入 AstrBot 的 `data/plugins/` 下，或在插件市场中通过仓库地址安装。
-2. 重启 / 重载 AstrBot，在 WebUI 插件配置页按需调整参数。
-
-依赖见 `requirements.txt`（仅 `aiohttp`，AstrBot 环境通常已内置）。
-
-## 配置项
-
-| 字段 | 说明 | 默认 |
-|------|------|------|
-| `api_endpoint` | Pollinations 生图接口基址 | `https://image.pollinations.ai/prompt` |
-| `model` | 生图模型（如 `flux`、`turbo`） | `flux` |
-| `default_aspect_ratio` | 默认宽高比（`1:1` / `3:4` / `4:3` / `9:16` / `16:9`） | `1:1` |
-| `nologo` | 是否去除水印 | `true` |
-| `max_retries` | 生图失败时的最大重试次数 | `3` |
-| `retry_backoff_base_seconds` | 429 限流退避基数（秒） | `2` |
-| `retry_backoff_max_seconds` | 429 限流退避封顶（秒） | `30` |
-| `min_request_interval_seconds` | 两次生图最小间隔（节流），0 关闭 | `3` |
-| `proxy_url` | HTTP 代理，网络受限时使用 | 空 |
-| `user_agent` | 请求 UA | Chrome 126 |
-| `request_timeout_seconds` | 单次请求超时 | `60` |
-| `cleanup_enabled` | 是否自动清理旧图 | `true` |
-| `max_cached_images` | 缓存目录最多保留图片数，0 不限 | `200` |
-| `cache_retention_days` | 图片保留天数，0 不限 | `7` |
-| `enable_llm_tool` | 是否启用 LLM 函数工具 | `true` |
-
-## 工作流程
-
-将提示词与宽高比对应的分辨率、模型、随机 seed 拼接为 Pollinations 的 GET 请求：
-
-```
-GET {api_endpoint}/{URL编码后的提示词}?width=..&height=..&model=..&seed=..&nologo=true
-```
-
-接口直接返回图片二进制。插件校验文件头确认是有效图片后保存到 `data/imagefree_t2i/`，随后作为消息发送。失败会按 `max_retries` 换新 seed 重试。
-
-## 限流退避与节流
-
-Pollinations 免费服务对高频请求会返回 `HTTP 429 Too Many Requests`。插件做了两层防护：
-
-- **请求节流**：由 `min_request_interval_seconds` 控制，两次生图之间强制保持最小间隔，从源头降低触发限流的概率。设为 `0` 可关闭。
-- **429 指数退避**：遇到 429 时，等待时间按 `retry_backoff_base_seconds × 2^(重试次数-1)` 递增，并由 `retry_backoff_max_seconds` 封顶，比固定重试更能扛住连续限流。
-
-正常聊天场景（零星、间隔发起）几乎不会触发限流；只有短时间高频批量出图才会集中遇到 429。
-
-## 图片自动清理
-
-生成的图片会保存在 `data/imagefree_t2i/`，为避免长期堆积占用磁盘，插件在每次成功出图后自动清理旧图：
-
-- `cleanup_enabled`：清理总开关。
-- `cache_retention_days`：删除修改时间超过该天数的图片（`0` 表示不按时间清理）。
-- `max_cached_images`：仅保留最新的 N 张，超出的旧图删除（`0` 表示不按数量清理）。
-
-清理只作用于本插件自己的缓存目录、只删图片文件，且任何异常都仅记日志、不影响出图。
-
-## 重要说明
-
-- Pollinations 为公共免费服务，稳定性与出图速度受其负载影响；高峰期可能偶发超时，插件已内置重试。
-- 提示词建议使用英文，出图质量通常更好。
-- 若需要稳定、可商用、完全可控的生图能力，可自建开源模型（如 Z-Image-Turbo / FLUX，用 `diffusers` 本地部署），把 `api_endpoint` 指向自建服务即可。
-
-## 免责声明
+## ⚠️ 免责声明（务必先阅读）
 
 **在下载、安装或使用本插件前，请务必完整阅读并充分理解以下条款。一旦下载、安装或以任何方式使用本插件，即视为您已阅读、理解并无条件同意本免责声明的全部内容；如您不同意其中任何一条，请立即停止使用并彻底删除本插件。**
 
@@ -112,6 +48,173 @@ Pollinations 免费服务对高频请求会返回 `HTTP 429 Too Many Requests`�
 
 - 本免责声明的最终解释权归本插件作者所有，作者保留随时修改本声明的权利，修改后自公布之时起生效。
 - 若本声明的任何条款被认定为无效或不可执行，不影响其余条款的效力。
+
+---
+
+## 功能特性
+
+- **免费开箱即用**：基于 Pollinations 公共接口，无需 API Key、无需注册。
+- **多种触发方式**：指令手动生图 + LLM 函数工具自动生图。
+- **多宽高比**：内置 `1:1` / `3:4` / `4:3` / `9:16` / `16:9` 五种官方训练分辨率桶，从根本上避免竖长图变形。
+- **AI 提示词增强**：可让 Pollinations 用 LLM 自动润色/扩写提示词，短提示词或中文提示词提升明显。
+- **智能限流防护**：请求节流 + 429 智能退避（优先遵循服务器 `Retry-After`），扛住免费服务的高频限流。
+- **图片自动清理**：按数量与保留天数自动清理缓存，避免磁盘堆积。
+
+## 指令一览
+
+| 指令 | 别名 | 说明 |
+|------|------|------|
+| `/imagefree_draw <提示词>` | `/生图`、`/画图` | 根据提示词生成图片并发送 |
+| `/imagefree_status` | — | 查看当前接口、模型、宽高比、重试、缓存等配置 |
+| LLM 函数工具 `imagefree_generate_image` | — | 开启后 LLM 可自动调用生图能力（支持 `prompt` 与 `aspect_ratio`） |
+
+## 安装
+
+支持两种安装方式，任选其一：
+
+**方式一：插件市场（推荐）**
+
+1. 打开 AstrBot WebUI → 插件市场。
+2. 通过仓库地址安装：`https://github.com/menglian001/astrbot_plugin_imagefree_t2i`
+3. 安装完成后在插件配置页按需调整参数。
+
+**方式二：手动安装**
+
+1. 将本插件目录放入 AstrBot 的 `data/plugins/` 下。
+2. 重启或在 WebUI 中重载插件。
+3. 在 WebUI 插件配置页按需调整参数。
+
+依赖见 `requirements.txt`（仅 `aiohttp`，AstrBot 环境通常已内置）。
+
+## 使用教程
+
+### 1. 手动生图
+
+最基本的用法，直接在聊天中发送指令：
+
+```
+/生图 夕阳下的雪山湖泊
+```
+
+或用英文提示词（出图质量通常更好）：
+
+```
+/imagefree_draw a serene mountain lake at sunset, cinematic lighting
+```
+
+别名 `/生图`、`/画图`、原始指令 `/imagefree_draw` 效果一致。插件会先回复"正在生成图片…"，随后把生成的图片发送到当前聊天。
+
+> 提示：宽高比默认使用配置项 `default_aspect_ratio`（默认 `1:1`）。可在 WebUI 配置中改为 `9:16` 出竖图、`16:9` 出横图。
+
+### 2. 查看当前配置
+
+```
+/imagefree_status
+```
+
+会返回当前接口、模型、AI 增强开关、默认宽高比、去水印、重试与退避、节流间隔、自动清理策略、当前缓存图片数、代理与超时等完整状态，便于排查问题。
+
+### 3. 让 LLM 自动生图
+
+开启配置项 `enable_llm_tool`（默认开启）后，LLM 在对话中可自动调用函数工具 `imagefree_generate_image`。例如你直接对机器人说：
+
+```
+帮我画一张赛博朋克风格的城市夜景，竖屏
+```
+
+LLM 会自行决定调用生图工具，并把 `aspect_ratio` 设为 `9:16`。工具参数：
+
+- `prompt`（string）：图片文字描述，英文效果通常更好。
+- `aspect_ratio`（string）：可选 `1:1` / `3:4` / `4:3` / `9:16` / `16:9`，默认 `1:1`。
+
+### 4. 宽高比与分辨率对照
+
+| 宽高比 | 输出分辨率 | 适用场景 |
+|--------|-----------|---------|
+| `1:1` | 1024×1024 | 头像、图标、通用方图 |
+| `3:4` | 896×1152 | 竖版海报、人物立绘 |
+| `4:3` | 1152×896 | 横版插画、风景 |
+| `9:16` | 768×1344 | 手机壁纸、竖屏短视频封面 |
+| `16:9` | 1344×768 | 桌面壁纸、横屏封面 |
+
+分辨率采用 SDXL/flux 官方训练用的分辨率桶（宽高均为 64 的倍数、总像素锚定 ~1MP），从根本上避免竖长图元素被拉伸/重复变形。
+
+## 配置项
+
+在 AstrBot WebUI 插件配置页调整，字段与 `_conf_schema.json` 一一对应：
+
+| 字段 | 说明 | 默认 |
+|------|------|------|
+| `api_endpoint` | Pollinations 生图接口基址 | `https://image.pollinations.ai/prompt` |
+| `model` | 生图模型（如 `flux`、`turbo`） | `flux` |
+| `enhance` | AI 提示词增强，让 Pollinations 用 LLM 自动润色/扩写提示词 | `true` |
+| `quality_suffix` | 自动追加到提示词末尾的质量增强词，留空则不追加 | `best quality, ultra detailed, high resolution, sharp focus, masterpiece, 8k` |
+| `default_aspect_ratio` | 默认宽高比（`1:1` / `3:4` / `4:3` / `9:16` / `16:9`） | `1:1` |
+| `nologo` | 是否去除水印 | `true` |
+| `max_retries` | 生图失败时的最大重试次数 | `5` |
+| `retry_backoff_base_seconds` | 429 限流退避基数（秒） | `2` |
+| `retry_backoff_max_seconds` | 429 限流退避封顶（秒） | `60` |
+| `min_request_interval_seconds` | 两次生图最小间隔（节流），0 关闭 | `5` |
+| `proxy_url` | HTTP 代理，网络受限时使用 | 空 |
+| `user_agent` | 请求 UA | Chrome 126 |
+| `request_timeout_seconds` | 单次请求超时（秒） | `60` |
+| `cleanup_enabled` | 是否自动清理旧图 | `true` |
+| `max_cached_images` | 缓存目录最多保留图片数，0 不限 | `200` |
+| `cache_retention_days` | 图片保留天数，0 不限 | `7` |
+| `enable_llm_tool` | 是否启用 LLM 函数工具 | `true` |
+
+## 模型选择建议
+
+- **`flux`（默认，推荐）**：严格按预设分辨率出图（如 `1:1` 输出完整 1024×1024），质量较好，速度略慢（单次常 20–60s）。
+- **`turbo`（更快）**：出图更快，但受自身分辨率上限限制，会把预设分辨率**按相同宽高比等比缩小**（例如 1024×1024 实际输出约 768×768）。宽高比精确、不会变形，但清晰度和细节弱于 flux。
+
+追求画质用 `flux`，追求速度可切 `turbo`。
+
+## 工作流程
+
+将提示词（可选追加质量增强词）与宽高比对应的分辨率、模型、随机 seed 拼接为 Pollinations 的 GET 请求：
+
+```
+GET {api_endpoint}/{URL编码后的提示词}?width=..&height=..&model=..&seed=..&nologo=true&enhance=true
+```
+
+接口直接返回图片二进制。插件校验文件头（JPEG/PNG/WEBP/GIF）确认是有效图片后，保存到 `data/imagefree_t2i/`，随后作为消息发送。失败会按 `max_retries` 换新 seed 重试。
+
+## 限流退避与节流
+
+Pollinations 免费服务对高频/并发请求会返回 `HTTP 429 Too Many Requests`。插件做了两层防护：
+
+- **请求节流（串行化）**：由 `min_request_interval_seconds` 控制。节流开启时，整个生图请求过程持有内部锁，**确保同一时刻只有一个在途请求**，且下一次请求会等到「上一次请求真正完成 + 最小间隔」后才放行。这样即使单次出图耗时较长，也不会与后续请求并发，从源头降低触发 429 的概率。设为 `0` 可关闭节流（此时不加锁、不串行化）。
+- **429 智能退避**：遇到 429 时，**优先读取服务器返回的 `Retry-After` 头**（支持秒数或 HTTP 日期两种格式），严格按服务器要求的时长等待；服务器未给出时，才回退到指数退避 `retry_backoff_base_seconds × 2^(重试次数-1)`。两者都由 `retry_backoff_max_seconds` 封顶。
+
+正常聊天场景（零星、间隔发起）几乎不会触发限流；只有短时间高频批量出图才会集中遇到 429，此时节流会让多个请求自动排队执行。
+
+## 图片自动清理
+
+生成的图片保存在 `data/imagefree_t2i/`，为避免长期堆积占用磁盘，插件在每次成功出图后自动清理旧图：
+
+- `cleanup_enabled`：清理总开关。
+- `cache_retention_days`：删除修改时间超过该天数的图片（`0` 表示不按时间清理）。
+- `max_cached_images`：仅保留最新的 N 张，超出的旧图删除（`0` 表示不按数量清理）。
+
+清理只作用于本插件自己的缓存目录、只删图片文件，且任何异常都仅记日志、不影响出图。
+
+## 常见问题（FAQ）
+
+**Q：生图失败，提示"已重试 N 次"？**
+A：多为 Pollinations 高峰期限流或网络超时。可适当调大 `max_retries`、`request_timeout_seconds`，或增大 `min_request_interval_seconds` 降低请求频率。
+
+**Q：连续批量生图频繁遇到 429？**
+A：免费服务对并发/高频有限制。保持 `min_request_interval_seconds ≥ 5`（默认），插件会自动串行排队；批量场景建议进一步调大该值。
+
+**Q：国内服务器访问超时？**
+A：在 `proxy_url` 填写 HTTP 代理，如 `http://127.0.0.1:7890` 或 `http://user:pass@host:port`。
+
+**Q：出图尺寸和预设不一致？**
+A：多为使用了 `turbo` 模型（会等比缩小）。改用默认 `flux` 即可获得预设分辨率。
+
+**Q：想要稳定、可商用、完全可控的生图能力？**
+A：可自建开源模型（如 Z-Image-Turbo / FLUX，用 `diffusers` 本地部署），把 `api_endpoint` 指向自建服务即可。
 
 ## 许可
 

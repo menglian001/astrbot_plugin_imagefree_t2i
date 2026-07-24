@@ -11,7 +11,7 @@ desc: >
   其可用性、安全性与内容合规性均由该第三方负责，与作者无关；本插件按"现状"提供不作
   任何担保，使用本插件产生的一切内容及由此引发的任何后果、损失与法律责任均由使用者
   自行承担，与作者完全无关。安装或使用即视为已阅读并同意本声明，不同意请勿使用。
-version: 1.0.0
+version: 1.0.1
 author: menglian001
 repo: https://github.com/menglian001/astrbot_plugin_imagefree_t2i
 logo: logo.gif
