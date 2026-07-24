@@ -14,5 +14,5 @@ desc: >
 version: 1.0.1
 author: menglian001
 repo: https://github.com/menglian001/astrbot_plugin_imagefree_t2i
-logo: logo.gif
+logo: logo.png
 astrbot_version: ">=4.16,<5"
