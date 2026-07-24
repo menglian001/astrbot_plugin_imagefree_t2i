@@ -18,6 +18,8 @@ import asyncio
 import random
 import time
 import uuid
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -29,12 +31,15 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 
 # 宽高比 -> 像素预设
+# 采用 SDXL/flux 官方训练用的分辨率桶：宽高均为 64 的倍数，总像素锚定在 ~1MP。
+# 盲目拉高长边（如 9:16 用 1440）会让画面超出模型训练分布，导致元素被拉伸/重复变形，
+# 竖长图尤其明显；这里回归官方桶尺寸以从根本上避免变形。
 ASPECT_RATIO_TO_SIZE = {
     "1:1": (1024, 1024),
-    "3:4": (768, 1024),
-    "4:3": (1024, 768),
-    "9:16": (576, 1024),
-    "16:9": (1024, 576),
+    "3:4": (896, 1152),
+    "4:3": (1152, 896),
+    "9:16": (768, 1344),
+    "16:9": (1344, 768),
 }
 
 VALID_ASPECT_RATIOS = set(ASPECT_RATIO_TO_SIZE.keys())
@@ -46,7 +51,7 @@ DEFAULT_BASE_ENDPOINT = "https://image.pollinations.ai/prompt"
     "astrbot_plugin_imagefree_t2i",
     "menglian001",
     "基于 Pollinations 的免费文生图插件（无需 API Key）",
-    "1.0.0",
+    "1.0.1",
     "https://github.com/menglian001/astrbot_plugin_imagefree_t2i",
 )
 class ImageFreePlugin(Star):
@@ -77,8 +82,21 @@ class ImageFreePlugin(Star):
     def _nologo(self) -> bool:
         return bool(self.config.get("nologo", True))
 
+    def _enhance(self) -> bool:
+        # 让 Pollinations 用 LLM 自动润色/扩写提示词，显著提升成图质量
+        return bool(self.config.get("enhance", True))
+
+    def _quality_suffix(self) -> str:
+        # 追加到提示词末尾的质量增强词，留空则不追加
+        default = (
+            "best quality, ultra detailed, high resolution, "
+            "sharp focus, masterpiece, 8k"
+        )
+        val = self.config.get("quality_suffix")
+        return default if val is None else str(val)
+
     def _max_retries(self) -> int:
-        return max(1, int(self.config.get("max_retries") or 3))
+        return max(1, int(self.config.get("max_retries") or 5))
 
     def _proxy_url(self) -> Optional[str]:
         proxy = self.config.get("proxy_url")
@@ -100,7 +118,7 @@ class ImageFreePlugin(Star):
 
     def _throttle_interval(self) -> float:
         # 两次生图请求的最小间隔（秒），0 表示不节流
-        return max(0.0, float(self.config.get("min_request_interval_seconds") or 0))
+        return max(0.0, float(self.config.get("min_request_interval_seconds") or 5))
 
     def _backoff_base(self) -> float:
         # 429 退避基数（秒）
@@ -108,7 +126,7 @@ class ImageFreePlugin(Star):
 
     def _backoff_max(self) -> float:
         # 429 退避封顶（秒）
-        return max(1.0, float(self.config.get("retry_backoff_max_seconds") or 30))
+        return max(1.0, float(self.config.get("retry_backoff_max_seconds") or 60))
 
     def _cleanup_enabled(self) -> bool:
         return bool(self.config.get("cleanup_enabled", True))
@@ -123,8 +141,16 @@ class ImageFreePlugin(Star):
 
     # ---------- 核心生图逻辑 ----------
 
+    def _compose_prompt(self, prompt: str) -> str:
+        """将用户提示词与质量增强词拼接。"""
+        prompt = (prompt or "").strip()
+        suffix = self._quality_suffix().strip()
+        if suffix:
+            return f"{prompt}, {suffix}" if prompt else suffix
+        return prompt
+
     def _build_url(self, prompt: str, width: int, height: int, seed: int) -> str:
-        quoted = quote(prompt, safe="")
+        quoted = quote(self._compose_prompt(prompt), safe="")
         params = [
             f"width={width}",
             f"height={height}",
@@ -133,6 +159,8 @@ class ImageFreePlugin(Star):
         ]
         if self._nologo():
             params.append("nologo=true")
+        if self._enhance():
+            params.append("enhance=true")
         return f"{self._api_endpoint()}/{quoted}?{'&'.join(params)}"
 
     @staticmethod
@@ -147,37 +175,14 @@ class ImageFreePlugin(Star):
             or data[:6] in (b"GIF87a", b"GIF89a")
         )
 
-    async def _throttle(self) -> None:
-        """请求节流：确保两次生图请求间隔不小于配置的最小间隔。"""
-        interval = self._throttle_interval()
-        if interval <= 0:
-            return
-        async with self._throttle_lock:
-            now = time.monotonic()
-            wait = self._last_request_ts + interval - now
-            if wait > 0:
-                logger.info(f"[imagefree] 节流等待 {wait:.1f}s 以避免限流")
-                await asyncio.sleep(wait)
-            # 记录本次请求的“放行时刻”
-            self._last_request_ts = time.monotonic()
-
-    def _backoff_delay(self, attempt: int) -> float:
-        """429 指数退避：base * 2^(attempt-1)，封顶 max。"""
-        delay = self._backoff_base() * (2 ** (attempt - 1))
-        return min(delay, self._backoff_max())
-
-    async def _generate_image(
-        self, prompt: str, aspect_ratio: Optional[str] = None
+    async def _request_image_bytes(
+        self, prompt: str, width: int, height: int
     ) -> bytes:
-        """向 Pollinations 提交生图请求并返回图片字节，失败时抛出异常。"""
-        aspect_ratio = aspect_ratio or self._default_aspect_ratio()
-        if aspect_ratio not in VALID_ASPECT_RATIOS:
-            aspect_ratio = self._default_aspect_ratio()
-        width, height = ASPECT_RATIO_TO_SIZE[aspect_ratio]
+        """执行实际的 HTTP 生图请求（含重试与退避），返回图片字节或抛异常。
 
-        # 进入前先节流，从源头降低触发 429 的概率
-        await self._throttle()
-
+        本方法不负责节流；节流的等待与记账由调用方 `_generate_image` 统一处理，
+        以确保时间基准是“请求真正完成”的时刻，且同一时刻只有一个在途请求。
+        """
         timeout = aiohttp.ClientTimeout(total=self._request_timeout())
         last_error: Optional[str] = None
 
@@ -192,12 +197,14 @@ class ImageFreePlugin(Star):
                         proxy=self._proxy_url(),
                     ) as resp:
                         if resp.status == 429:
-                            # 限流：指数退避后重试
+                            # 限流：优先听服务器的 Retry-After，否则指数退避
                             last_error = "HTTP 429 Too Many Requests"
-                            delay = self._backoff_delay(attempt)
+                            delay = self._resolve_429_delay(
+                                attempt, resp.headers.get("Retry-After")
+                            )
                             logger.warning(
                                 f"[imagefree] 第 {attempt} 次遇到 429 限流，"
-                                f"退避 {delay:.1f}s 后重试"
+                                f"等待 {delay:.1f}s 后重试"
                             )
                             await asyncio.sleep(delay)
                             continue
@@ -222,7 +229,82 @@ class ImageFreePlugin(Star):
                 logger.warning(f"[imagefree] 第 {attempt} 次: {last_error}")
                 await asyncio.sleep(1)
 
-        raise RuntimeError(f"生图失败，已重试 {self._max_retries()} 次：{last_error}")
+        raise RuntimeError(
+            f"生图失败，已重试 {self._max_retries()} 次：{last_error}"
+        )
+
+    def _backoff_delay(self, attempt: int) -> float:
+        """429 指数退避：base * 2^(attempt-1)，封顶 max。"""
+        delay = self._backoff_base() * (2 ** (attempt - 1))
+        return min(delay, self._backoff_max())
+
+    @staticmethod
+    def _parse_retry_after(value: Optional[str]) -> Optional[float]:
+        """解析 429 响应的 Retry-After 头。
+
+        支持两种格式：秒数（如 "5"）或 HTTP 日期（RFC 7231）。
+        解析失败或为负返回 None。
+        """
+        if not value:
+            return None
+        value = value.strip()
+        # 1) 纯秒数
+        try:
+            secs = float(value)
+            return secs if secs >= 0 else None
+        except ValueError:
+            pass
+        # 2) HTTP 日期
+        try:
+            retry_dt = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if retry_dt is None:
+            return None
+        if retry_dt.tzinfo is None:
+            retry_dt = retry_dt.replace(tzinfo=timezone.utc)
+        delta = (retry_dt - datetime.now(timezone.utc)).total_seconds()
+        return delta if delta >= 0 else None
+
+    def _resolve_429_delay(self, attempt: int, retry_after: Optional[str]) -> float:
+        """决定 429 后的等待秒数：优先服务器 Retry-After，其次指数退避，统一封顶。"""
+        server_hint = self._parse_retry_after(retry_after)
+        if server_hint is not None:
+            return min(server_hint, self._backoff_max())
+        return self._backoff_delay(attempt)
+
+    async def _generate_image(
+        self, prompt: str, aspect_ratio: Optional[str] = None
+    ) -> bytes:
+        """向 Pollinations 提交生图请求并返回图片字节，失败时抛出异常。
+
+        节流策略（修复并发在途请求问题）：
+        - 开启节流（interval > 0）时，整个请求过程持有 `_throttle_lock`，
+          确保同一时刻只有一个在途请求；请求开始前等待到「上次请求完成 + 间隔」，
+          并在 `finally` 中以「本次请求真正完成」的时刻记账。
+          这样最小间隔以请求实际结束为基准，长耗时请求也不会与后续请求并发。
+        - 关闭节流（interval <= 0）时，直接发起请求，不加锁、不记账。
+        """
+        aspect_ratio = aspect_ratio or self._default_aspect_ratio()
+        if aspect_ratio not in VALID_ASPECT_RATIOS:
+            aspect_ratio = self._default_aspect_ratio()
+        width, height = ASPECT_RATIO_TO_SIZE[aspect_ratio]
+
+        interval = self._throttle_interval()
+        if interval <= 0:
+            return await self._request_image_bytes(prompt, width, height)
+
+        async with self._throttle_lock:
+            # 等待到「上次请求完成时刻 + 最小间隔」再放行
+            wait = self._last_request_ts + interval - time.monotonic()
+            if wait > 0:
+                logger.info(f"[imagefree] 节流等待 {wait:.1f}s 以避免限流")
+                await asyncio.sleep(wait)
+            try:
+                return await self._request_image_bytes(prompt, width, height)
+            finally:
+                # 以请求真正完成的时刻记账，保证成功/失败路径都正确更新
+                self._last_request_ts = time.monotonic()
 
     def _save_image(self, image_bytes: bytes) -> Path:
         # 依据文件头判断后缀，默认 png
@@ -335,6 +417,8 @@ class ImageFreePlugin(Star):
             "ImageFree 文生图插件状态\n"
             f"- 生图接口: {self._api_endpoint()}\n"
             f"- 模型: {self._model()}\n"
+            f"- AI 提示词增强: {'开' if self._enhance() else '关'}\n"
+            f"- 质量增强词: {self._quality_suffix() or '无'}\n"
             f"- 默认宽高比: {self._default_aspect_ratio()}\n"
             f"- 去水印(nologo): {'开' if self._nologo() else '关'}\n"
             f"- 最大重试: {self._max_retries()} 次\n"
