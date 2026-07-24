@@ -11,6 +11,18 @@
         "hint": "Pollinations 支持的模型名，如 flux / turbo 等。默认 flux 质量较好。",
         "default": "flux"
     },
+    "enhance": {
+        "description": "AI 提示词增强",
+        "type": "bool",
+        "hint": "开启后请求 enhance=true，让 Pollinations 用 LLM 自动润色/扩写提示词，对简短或中文提示词的成图质量提升明显。",
+        "default": true
+    },
+    "quality_suffix": {
+        "description": "质量增强词",
+        "type": "string",
+        "hint": "自动追加到提示词末尾的质量词，用于提升清晰度与细节。留空则不追加。",
+        "default": "best quality, ultra detailed, high resolution, sharp focus, masterpiece, 8k"
+    },
     "default_aspect_ratio": {
         "description": "默认宽高比",
         "type": "string",
@@ -27,26 +39,26 @@
     "max_retries": {
         "description": "最大重试次数",
         "type": "int",
-        "hint": "生图失败（限流/超时/返回非图片）时的重试次数",
-        "default": 3
+        "hint": "生图失败（限流/超时/返回非图片）时的重试次数。免费服务易限流，建议 5 次以上。",
+        "default": 5
     },
     "min_request_interval_seconds": {
         "description": "请求最小间隔（秒）",
         "type": "int",
-        "hint": "两次生图请求之间的最小间隔，用于节流以降低触发 429 限流的概率。0 表示不节流。",
-        "default": 3
+        "hint": "两次生图请求之间的最小间隔，用于节流以降低触发 429 限流的概率。0 表示不节流。免费服务建议 5 秒以上。",
+        "default": 5
     },
     "retry_backoff_base_seconds": {
         "description": "429 退避基数（秒）",
         "type": "int",
-        "hint": "遇到 429 限流时的退避基数，实际等待按 基数 × 2^(重试次数-1) 递增。",
+        "hint": "遇到 429 限流时的退避基数，实际等待按 基数 × 2^(重试次数-1) 递增。若响应带 Retry-After 头则优先采用该值。",
         "default": 2
     },
     "retry_backoff_max_seconds": {
         "description": "429 退避封顶（秒）",
         "type": "int",
         "hint": "429 退避等待的最大值，避免等待过久。",
-        "default": 30
+        "default": 60
     },
     "cleanup_enabled": {
         "description": "启用图片自动清理",
